@@ -1,0 +1,236 @@
+/* ========================================
+   GLOBAL STYLES
+======================================== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    width: 420px;
+    min-height: 650px;
+    padding: 18px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+
+    background: linear-gradient(
+        135deg,
+        #0f172a 0%,
+        #1e293b 50%,
+        #0f172a 100%
+    );
+
+    color: #e2e8f0;
+}
+
+/* ========================================
+   CONTAINER
+======================================== */
+#result {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* ========================================
+   RISK CARD
+======================================== */
+.risk-card {
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 20px;
+
+    padding: 25px;
+    text-align: center;
+
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, 0.25),
+        inset 0 1px 0 rgba(255,255,255,0.1);
+
+    transition: all 0.3s ease;
+}
+
+.risk-card:hover {
+    transform: translateY(-3px);
+}
+
+#riskLevel {
+    font-size: 28px;
+    font-weight: 700;
+    color: #f8fafc;
+    margin-bottom: 12px;
+    letter-spacing: 0.5px;
+}
+
+#riskScore {
+    background: linear-gradient(
+        135deg,
+        #38bdf8,
+        #60a5fa,
+        #818cf8
+    );
+
+    background-clip: text;      /* Standard property */
+    -webkit-background-clip: text;
+
+    color: transparent;         /* Fallback */
+    -webkit-text-fill-color: transparent;
+}
+
+#confidence {
+    font-size: 14px;
+    color: #cbd5e1;
+    margin-top: 8px;
+}
+
+/* ========================================
+   SECTIONS
+======================================== */
+.section {
+    background: rgba(255, 255, 255, 0.95);
+
+    border-radius: 16px;
+    padding: 16px;
+
+    color: #1e293b;
+
+    box-shadow:
+        0 5px 20px rgba(0, 0, 0, 0.15);
+
+    transition: all 0.3s ease;
+}
+
+.section:hover {
+    transform: translateY(-2px);
+}
+
+.section h3 {
+    font-size: 16px;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 12px;
+
+    border-left: 4px solid #3b82f6;
+    padding-left: 10px;
+}
+
+/* ========================================
+   FINDINGS LIST
+======================================== */
+#findingsList {
+    max-height: 220px;
+    overflow-y: auto;
+    padding-left: 20px;
+}
+
+#findingsList li {
+    margin-bottom: 10px;
+    line-height: 1.5;
+    color: #334155;
+}
+
+/* Custom Scrollbar */
+#findingsList::-webkit-scrollbar {
+    width: 6px;
+}
+
+#findingsList::-webkit-scrollbar-track {
+    background: #e2e8f0;
+    border-radius: 10px;
+}
+
+#findingsList::-webkit-scrollbar-thumb {
+    background: #3b82f6;
+    border-radius: 10px;
+}
+
+/* ========================================
+   BUTTONS
+======================================== */
+button {
+    width: 100%;
+    padding: 14px;
+
+    border: none;
+    border-radius: 12px;
+
+    font-size: 14px;
+    font-weight: 600;
+
+    cursor: pointer;
+    transition: all 0.3s ease;
+
+    color: white;
+}
+
+/* Analyze Button */
+#analyzeBtn {
+    margin-bottom: 15px;
+
+    background: linear-gradient(
+        135deg,
+        #2563eb,
+        #3b82f6
+    );
+
+    box-shadow: 0 5px 15px rgba(59,130,246,0.4);
+}
+
+#analyzeBtn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(59,130,246,0.5);
+}
+
+/* Report Button */
+#viewReportBtn {
+    background: linear-gradient(
+        135deg,
+        #3b82f6,
+        #60a5fa
+    );
+
+    box-shadow: 0 4px 12px rgba(59,130,246,0.35);
+}
+
+#viewReportBtn:hover {
+    transform: translateY(-2px);
+}
+
+/* Download Button */
+#downloadReportBtn {
+    background: linear-gradient(
+        135deg,
+        #10b981,
+        #34d399
+    );
+
+    box-shadow: 0 4px 12px rgba(16,185,129,0.35);
+}
+
+#downloadReportBtn:hover {
+    transform: translateY(-2px);
+}
+
+/* Button Click Effect */
+button:active {
+    transform: scale(0.97);
+}
+
+/* ========================================
+   ACTION BUTTONS
+======================================== */
+.action-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+/* ========================================
+   UTILITIES
+======================================== */
+.hidden {
+    display: none;
+}
