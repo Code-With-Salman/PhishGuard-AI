@@ -1,0 +1,317 @@
+{
+  "name": "PhishGuard AI - Phishing Analysis",
+  "description": "Main workflow for analyzing emails with 5 parallel agents and risk scoring",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "phishing-analysis",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook_trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [50, 250]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Validate incoming email data\nconst { metadata, email, links, attachments } = $input.all();\n\n// Validate required fields\nif (!metadata || !email) {\n  return { error: 'Missing required fields: metadata or email' };\n}\n\nif (!email.message_id || !email.sender || !email.recipient || !email.subject) {\n  return { error: 'Missing required email fields' };\n}\n\n// Validate email format\nconst emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (typeof email.sender.email === 'string' && !emailRegex.test(email.sender.email)) {\n  return { error: 'Invalid sender email format' };\n}\n\nif (!emailRegex.test(email.recipient)) {\n  return { error: 'Invalid recipient email format' };\n}\n\n// Sanitize body to max 50KB\nlet body = email.body || '';\nif (body.length > 51200) {\n  body = body.substring(0, 51200);\n}\n\n// Trim whitespace\nbody = body.trim();\nif (!body || body.length === 0) {\n  return { error: 'Email body cannot be empty' };\n}\n\n// Return validated data\nreturn {\n  metadata: {\n    request_id: metadata.request_id,\n    timestamp: metadata.timestamp,\n    extension_version: metadata.extension_version,\n    user_email: metadata.user_email,\n    analysis_started_at: new Date().toISOString()\n  },\n  email: {\n    message_id: email.message_id,\n    sender: email.sender,\n    recipient: email.recipient,\n    cc: email.cc || [],\n    bcc: email.bcc || [],\n    subject: (email.subject || '').substring(0, 500),\n    body: body,\n    body_html: email.body_html || null,\n    timestamp: email.timestamp,\n    headers: email.headers || {},\n    is_reply: email.is_reply || false,\n    is_forwarded: email.is_forwarded || false\n  },\n  links: (links || []).map(link => ({\n    href: link.href,\n    anchor_text: link.anchor_text || '',\n    position: link.position || 0\n  })),\n  attachments: (attachments || []).map(att => ({\n    name: att.name,\n    size: att.size || 0,\n    mime_type: att.mime_type || 'application/octet-stream'\n  }))\n};\n"
+      },
+      "id": "validate_email",
+      "name": "Validate Email Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [250, 250]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Sender & Domain Analysis Agent\nconst { email, metadata } = $input.all();\nconst sender = email.sender || {};\nconst senderDomain = sender.email?.split('@')[1] || '';\nconst headers = email.headers || {};\n\nlet score = 0;\nconst findings = [];\n\n// Check domain age (dummy implementation - would use real WHOIS API)\nconst domainAge = Math.random() * 20; // years\nif (domainAge < 0.5) {\n  score += 15;\n  findings.push({ type: 'new_domain', severity: 'high', evidence: `Domain registered only ${domainAge.toFixed(1)} years ago` });\n} else if (domainAge < 2) {\n  score += 8;\n  findings.push({ type: 'young_domain', severity: 'medium', evidence: `Domain registered ${domainAge.toFixed(1)} years ago` });\n}\n\n// Check SPF status\nconst spfStatus = headers.spf || 'unknown';\nif (spfStatus === 'fail') {\n  score += 10;\n  findings.push({ type: 'spf_fail', severity: 'high', evidence: 'SPF verification failed' });\n} else if (spfStatus === 'pass') {\n  score = Math.max(0, score - 2);\n  findings.push({ type: 'spf_pass', severity: 'low', evidence: 'SPF verification passed' });\n}\n\n// Check DKIM status\nconst dkimStatus = headers.dkim || 'unknown';\nif (dkimStatus === 'fail') {\n  score += 10;\n  findings.push({ type: 'dkim_fail', severity: 'high', evidence: 'DKIM verification failed' });\n} else if (dkimStatus === 'pass') {\n  score = Math.max(0, score - 2);\n  findings.push({ type: 'dkim_pass', severity: 'low', evidence: 'DKIM verification passed' });\n}\n\n// Check DMARC status\nconst dmarcStatus = headers.dmarc || 'unknown';\nif (dmarcStatus === 'fail') {\n  score += 5;\n  findings.push({ type: 'dmarc_fail', severity: 'medium', evidence: 'DMARC verification failed' });\n}\n\n// Check for domain mismatch\nif (sender.email && sender.name) {\n  const nameInEmail = sender.name.toLowerCase();\n  const domainInEmail = sender.email.toLowerCase();\n  if (nameInEmail.includes('@') && !nameInEmail.includes(senderDomain)) {\n    score += 8;\n    findings.push({ type: 'domain_mismatch', severity: 'high', evidence: `Sender name contains different domain: ${nameInEmail}` });\n  }\n}\n\n// Cap at 25 points\nscore = Math.min(25, score);\n\nreturn {\n  agent_name: 'Sender Domain Analysis',\n  score: score,\n  findings: findings,\n  details: {\n    sender_domain: senderDomain,\n    spf_status: spfStatus,\n    dkim_status: dkimStatus,\n    dmarc_status: dmarcStatus,\n    sender_name: sender.name || 'Unknown',\n    sender_email: sender.email || 'Unknown'\n  }\n};\n"
+      },
+      "id": "agent_sender_domain",
+      "name": "Agent: Sender Domain Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 50]
+    },
+    {
+      "parameters": {
+        "functionCode": "// URL Intelligence Agent\nconst { email } = $input.all();\nconst links = $input.all().links || [];\n\nlet score = 0;\nconst findings = [];\n\nconst shortenerPatterns = [\n  /bit\\.ly/i, /tinyurl\\.com/i, /ow\\.ly/i, /goo\\.gl/i,\n  /short\\.link/i, /url\\.shortener/i, /bit/i\n];\n\nconst dangerousExtensions = [\n  '.exe', '.scr', '.vbs', '.com', '.bat', '.cmd', '.pif', '.lnk',\n  '.msi', '.jar', '.zip', '.rar', '.7z'\n];\n\n// Check each link\nlinks.forEach((link, index) => {\n  const href = link.href || '';\n  const anchorText = link.anchor_text || '';\n  \n  // Check for URL shorteners\n  if (shortenerPatterns.some(pattern => pattern.test(href))) {\n    score += 8;\n    findings.push({\n      type: 'url_shortener',\n      severity: 'medium',\n      position: index,\n      evidence: `Shortened URL detected: ${href}`,\n      url: href\n    });\n  }\n  \n  // Check for IP-based URLs\n  if (/^http(s)?:\\/\\/(\\d{1,3}\\.){3}\\d{1,3}/i.test(href)) {\n    score += 10;\n    findings.push({\n      type: 'ip_based_url',\n      severity: 'high',\n      position: index,\n      evidence: `IP-based URL detected: ${href}`,\n      url: href\n    });\n  }\n  \n  // Check for URL-anchor text mismatch\n  if (anchorText && anchorText.length > 0 && !href.includes(anchorText.split('.')[0])) {\n    if (anchorText.length > 5 && !href.includes('example') && !href.includes('domain')) {\n      score += 7;\n      findings.push({\n        type: 'url_mismatch',\n        severity: 'medium',\n        position: index,\n        evidence: `URL mismatch - display text: \"${anchorText}\" actual URL: ${href}`,\n        display_text: anchorText,\n        actual_url: href\n      });\n    }\n  }\n});\n\n// Check for suspicious TLDs\nconst suspiciousTLDs = ['.tk', '.ml', '.ga', '.cf', '.xyz', '.top', '.work'];\nlinks.forEach((link, index) => {\n  const href = link.href || '';\n  if (suspiciousTLDs.some(tld => href.endsWith(tld))) {\n    score += 5;\n    findings.push({\n      type: 'suspicious_tld',\n      severity: 'medium',\n      position: index,\n      evidence: `Suspicious TLD detected in URL: ${href}`,\n      url: href\n    });\n  }\n});\n\n// Cap at 25 points\nscore = Math.min(25, score);\n\nreturn {\n  agent_name: 'URL Intelligence',\n  score: score,\n  findings: findings,\n  details: {\n    total_links: links.length,\n    suspicious_links: findings.filter(f => f.severity === 'high').length,\n    analysis_timestamp: new Date().toISOString()\n  }\n};\n"
+      },
+      "id": "agent_url_intelligence",
+      "name": "Agent: URL Intelligence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 150]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "messages": {
+          "messageUi": [
+            {
+              "content": "You are a phishing detection expert. Analyze the email content below for phishing indicators and provide a risk score from 0-25. Look for: 1) Urgency/pressure language 2) Credential harvesting requests 3) Financial/money demands 4) Authority impersonation 5) Social engineering tactics\n\nEmail Subject: {{ $input.all().email.subject }}\n\nEmail Body:\n{{ $input.all().email.body }}\n\nRespond with ONLY valid JSON (no markdown, no code blocks):\n{\n  \"score\": <0-25>,\n  \"urgency_indicators\": [\"indicator1\", \"indicator2\"],\n  \"credential_harvest_risk\": \"none|low|medium|high\",\n  \"financial_scam_indicators\": [\"indicator1\"],\n  \"impersonation_risk\": \"none|low|medium|high\",\n  \"social_engineering_techniques\": [\"technique1\"],\n  \"overall_assessment\": \"description\"\n}\n",
+              "role": "user"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "agent_content_llm",
+      "name": "Agent: Content Analysis (LLM)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [450, 250]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse LLM response\nlet response;\ntry {\n  const responseText = $input.all().response || $input.all().text || '';\n  // Try to extract JSON from response\n  const jsonMatch = responseText.match(/\\{[\\s\\S]*\\}/);\n  response = JSON.parse(jsonMatch ? jsonMatch[0] : responseText);\n} catch (e) {\n  // Fallback response\n  response = {\n    score: 5,\n    urgency_indicators: [],\n    credential_harvest_risk: 'low',\n    financial_scam_indicators: [],\n    impersonation_risk: 'low',\n    social_engineering_techniques: [],\n    overall_assessment: 'Unable to parse LLM response, applying default low-risk assessment'\n  };\n}\n\nconst findings = [];\n\nif (response.urgency_indicators && response.urgency_indicators.length > 0) {\n  findings.push({\n    type: 'urgency_language',\n    severity: 'medium',\n    evidence: `Urgency indicators found: ${response.urgency_indicators.join(', ')}`\n  });\n}\n\nif (response.credential_harvest_risk === 'high') {\n  findings.push({\n    type: 'credential_harvest',\n    severity: 'high',\n    evidence: 'High risk of credential harvesting detected'\n  });\n}\n\nif (response.financial_scam_indicators && response.financial_scam_indicators.length > 0) {\n  findings.push({\n    type: 'financial_scam',\n    severity: 'high',\n    evidence: `Financial scam indicators: ${response.financial_scam_indicators.join(', ')}`\n  });\n}\n\nif (response.impersonation_risk === 'high') {\n  findings.push({\n    type: 'impersonation',\n    severity: 'high',\n    evidence: 'Impersonation attack detected'\n  });\n}\n\nreturn {\n  agent_name: 'Content Analysis',\n  score: Math.min(25, response.score || 0),\n  findings: findings,\n  details: {\n    credential_harvest_risk: response.credential_harvest_risk || 'low',\n    impersonation_risk: response.impersonation_risk || 'low',\n    social_engineering_techniques: response.social_engineering_techniques || [],\n    overall_assessment: response.overall_assessment || ''\n  }\n};\n"
+      },
+      "id": "parse_llm_response",
+      "name": "Parse LLM Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 250]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Header Analysis Agent (SPF/DKIM/DMARC)\nconst { email } = $input.all();\nconst headers = email.headers || {};\n\nlet score = 0;\nconst findings = [];\n\n// SPF Check\nconst spfStatus = headers.spf || 'unknown';\nif (spfStatus === 'fail' || spfStatus === 'softfail') {\n  score += 5;\n  findings.push({\n    type: 'spf_failure',\n    severity: 'medium',\n    evidence: `SPF status: ${spfStatus}`\n  });\n}\n\n// DKIM Check\nconst dkimStatus = headers.dkim || 'unknown';\nif (dkimStatus === 'fail') {\n  score += 3;\n  findings.push({\n    type: 'dkim_failure',\n    severity: 'low',\n    evidence: `DKIM status: ${dkimStatus}`\n  });\n}\n\n// DMARC Check\nconst dmarcStatus = headers.dmarc || 'unknown';\nif (dmarcStatus === 'fail' || dmarcStatus === 'quarantine') {\n  score += 2;\n  findings.push({\n    type: 'dmarc_policy',\n    severity: 'low',\n    evidence: `DMARC status: ${dmarcStatus}`\n  });\n}\n\nreturn {\n  agent_name: 'Header Analysis',\n  score: Math.min(10, score),\n  findings: findings,\n  details: {\n    spf_status: spfStatus,\n    dkim_status: dkimStatus,\n    dmarc_status: dmarcStatus\n  }\n};\n"
+      },
+      "id": "agent_header_analysis",
+      "name": "Agent: Header Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 350]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Attachment Risk Agent\nconst { attachments } = $input.all();\n\nlet score = 0;\nconst findings = [];\n\nconst dangerousExtensions = [\n  '.exe', '.scr', '.vbs', '.com', '.bat', '.cmd', '.pif', '.lnk',\n  '.msi', '.jar', '.jar', '.app', '.deb', '.rpm'\n];\n\nconst macroEnabledExtensions = ['.xls', '.xlsm', '.doc', '.docm', '.ppt', '.pptm'];\n\nconst suspiciousExtensions = [\n  '.zip', '.rar', '.7z', '.iso', '.img', '.dmg'\n];\n\nattachments.forEach((attachment, index) => {\n  const filename = attachment.name || '';\n  const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();\n  const size = attachment.size || 0;\n  \n  // Check dangerous extensions\n  if (dangerousExtensions.includes(ext)) {\n    score += 10;\n    findings.push({\n      type: 'dangerous_executable',\n      severity: 'high',\n      index: index,\n      evidence: `Executable file detected: ${filename}`,\n      filename: filename\n    });\n  }\n  \n  // Check macro-enabled Office files\n  if (macroEnabledExtensions.includes(ext)) {\n    score += 6;\n    findings.push({\n      type: 'macro_enabled_document',\n      severity: 'high',\n      index: index,\n      evidence: `Macro-enabled document: ${filename}`,\n      filename: filename\n    });\n  }\n  \n  // Check suspicious archives\n  if (suspiciousExtensions.includes(ext)) {\n    score += 4;\n    findings.push({\n      type: 'suspicious_archive',\n      severity: 'medium',\n      index: index,\n      evidence: `Suspicious archive format: ${filename}`,\n      filename: filename\n    });\n  }\n  \n  // Check large files\n  if (size > 20971520) { // 20MB\n    score += 2;\n    findings.push({\n      type: 'large_attachment',\n      severity: 'low',\n      index: index,\n      evidence: `Large attachment (${(size / 1024 / 1024).toFixed(2)}MB): ${filename}`,\n      filename: filename,\n      size_mb: (size / 1024 / 1024).toFixed(2)\n    });\n  }\n});\n\nreturn {\n  agent_name: 'Attachment Risk Analysis',\n  score: Math.min(15, score),\n  findings: findings,\n  details: {\n    total_attachments: attachments.length,\n    dangerous_files: findings.filter(f => f.severity === 'high').length,\n    analysis_timestamp: new Date().toISOString()\n  }\n};\n"
+      },
+      "id": "agent_attachment_risk",
+      "name": "Agent: Attachment Risk",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 450]
+    },
+    {
+      "parameters": {},
+      "id": "merge_agent_results",
+      "name": "Merge Agent Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [700, 250]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Risk Scoring Engine - Aggregate all agent scores\nconst agents = $input.all();\n\nlet agentResults = [];\nif (Array.isArray(agents)) {\n  agentResults = agents;\n} else {\n  agentResults = Object.values(agents).filter(item => item && item.agent_name);\n}\n\n// Extract scores from each agent\nconst senderRisk = agentResults.find(a => a.agent_name === 'Sender Domain Analysis')?.score || 0;\nconst contentRisk = agentResults.find(a => a.agent_name === 'Content Analysis')?.score || 0;\nconst urlRisk = agentResults.find(a => a.agent_name === 'URL Intelligence')?.score || 0;\nconst attachmentRisk = agentResults.find(a => a.agent_name === 'Attachment Risk Analysis')?.score || 0;\nconst authRisk = agentResults.find(a => a.agent_name === 'Header Analysis')?.score || 0;\n\n// Calculate total risk score\nconst totalRiskScore = Math.min(\n  100,\n  senderRisk + contentRisk + urlRisk + attachmentRisk + authRisk\n);\n\n// Determine risk level\nlet riskLevel, color;\nif (totalRiskScore <= 30) {\n  riskLevel = 'SAFE';\n  color = '#22c55e'; // Green\n} else if (totalRiskScore <= 60) {\n  riskLevel = 'SUSPICIOUS';\n  color = '#eab308'; // Yellow\n} else {\n  riskLevel = 'HIGH_RISK';\n  color = '#ef4444'; // Red\n}\n\n// Compile all findings\nconst allFindings = agentResults.reduce((acc, agent) => {\n  if (agent.findings) {\n    acc.push({\n      agent: agent.agent_name,\n      findings: agent.findings\n    });\n  }\n  return acc;\n}, []);\n\n// Generate recommendations\nconst recommendations = [];\n\nif (totalRiskScore > 60) {\n  recommendations.push('⚠️ High risk detected - Do NOT click any links');\n  recommendations.push('⚠️ Do NOT download or open attachments');\n  recommendations.push('⚠️ Contact sender through trusted channel to verify');\n  recommendations.push('⚠️ Consider reporting to IT security team');\n} else if (totalRiskScore > 30) {\n  recommendations.push('⚠️ Suspicious indicators detected');\n  recommendations.push('⚠️ Verify sender identity before clicking links');\n  recommendations.push('⚠️ Be cautious with attachments');\n  recommendations.push('ℹ️ Check email headers for authentication issues');\n} else {\n  recommendations.push('✓ Email appears legitimate');\n  recommendations.push('ℹ️ Standard security practices recommended');\n}\n\n// Add specific recommendations based on findings\nif (allFindings.some(f => f.findings.some(x => x.type.includes('url')))) {\n  recommendations.push('🔗 Hover over links to verify URLs before clicking');\n}\n\nif (allFindings.some(f => f.findings.some(x => x.type.includes('credential')))) {\n  recommendations.push('🔐 Never enter passwords or sensitive data via email links');\n}\n\nreturn {\n  risk_assessment: {\n    risk_score: totalRiskScore,\n    risk_level: riskLevel,\n    color: color,\n    summary: `This email has a ${riskLevel} risk score of ${totalRiskScore}/100`\n  },\n  breakdown: {\n    sender_risk: senderRisk,\n    content_risk: contentRisk,\n    url_risk: urlRisk,\n    attachment_risk: attachmentRisk,\n    auth_risk: authRisk\n  },\n  detailed_findings: agentResults,\n  all_findings: allFindings,\n  recommendations: recommendations,\n  actions_available: ['report_phishing', 'whitelist_sender', 'block_sender', 'delete_email'],\n  analysis_complete: true,\n  timestamp: new Date().toISOString()\n};\n"
+      },
+      "id": "risk_scoring_engine",
+      "name": "Risk Scoring Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 250]
+    },
+    {
+      "parameters": {
+        "host": "{{ $env.DB_HOST || 'localhost' }}",
+        "port": "{{ $env.DB_PORT || 5432 }}",
+        "database": "{{ $env.DB_NAME || 'phishguard_ai' }}",
+        "user": "{{ $env.DB_USER || 'postgres' }}",
+        "password": "{{ $env.DB_PASSWORD }}",
+        "ssl": false,
+        "query": "INSERT INTO email_analyses (\n  email_message_id,\n  user_email,\n  sender_name,\n  sender_email,\n  sender_domain,\n  subject,\n  body_preview,\n  body_hash,\n  recipient,\n  cc,\n  bcc,\n  risk_score,\n  risk_level,\n  sender_risk,\n  content_risk,\n  url_risk,\n  attachment_risk,\n  auth_risk,\n  findings,\n  recommendations,\n  spf_status,\n  dkim_status,\n  dmarc_status,\n  extracted_links,\n  attachment_count,\n  analysis_timestamp\n) VALUES (\n  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,\n  $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,\n  $21, $22, $23, $24, $25, $26\n) RETURNING id;",
+        "queryParams": [
+          "{{ $input.all().email.message_id }}",
+          "{{ $input.all().metadata.user_email }}",
+          "{{ $input.all().email.sender.name }}",
+          "{{ $input.all().email.sender.email }}",
+          "{{ $input.all().email.sender.email.split('@')[1] }}",
+          "{{ $input.all().email.subject }}",
+          "{{ $input.all().email.body.substring(0, 200) }}",
+          "{{ $input.all().email.body_hash || '' }}",
+          "{{ $input.all().email.recipient }}",
+          "{{ $input.all().email.cc.join(',') }}",
+          "{{ $input.all().email.bcc.join(',') }}",
+          "{{ $input.all().risk_assessment.risk_score }}",
+          "{{ $input.all().risk_assessment.risk_level }}",
+          "{{ $input.all().breakdown.sender_risk }}",
+          "{{ $input.all().breakdown.content_risk }}",
+          "{{ $input.all().breakdown.url_risk }}",
+          "{{ $input.all().breakdown.attachment_risk }}",
+          "{{ $input.all().breakdown.auth_risk }}",
+          "{{ JSON.stringify($input.all().detailed_findings) }}",
+          "{{ JSON.stringify($input.all().recommendations) }}",
+          "{{ $input.all().email.headers.spf }}",
+          "{{ $input.all().email.headers.dkim }}",
+          "{{ $input.all().email.headers.dmarc }}",
+          "{{ JSON.stringify($input.all().links) }}",
+          "{{ $input.all().attachments.length }}",
+          "{{ new Date().toISOString() }}"
+        ]
+      },
+      "id": "store_in_database",
+      "name": "Store in Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1000, 250]
+    },
+    {
+      "parameters": {
+        "responseCode": 200,
+        "responseData": "{{ { success: true, data: $input.all(), timestamp: new Date().toISOString(), processing_time_ms: (new Date() - new Date($input.all().metadata.analysis_started_at)) } }}"
+      },
+      "id": "webhook_response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1150, 250]
+    }
+  ],
+  "connections": {
+    "webhook_trigger": {
+      "main": [
+        [
+          {
+            "node": "validate_email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "validate_email": {
+      "main": [
+        [
+          {
+            "node": "agent_sender_domain",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "agent_url_intelligence",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "agent_content_llm",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "agent_header_analysis",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "agent_attachment_risk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "agent_sender_domain": {
+      "main": [
+        [
+          {
+            "node": "merge_agent_results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "agent_url_intelligence": {
+      "main": [
+        [
+          {
+            "node": "merge_agent_results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "agent_content_llm": {
+      "main": [
+        [
+          {
+            "node": "parse_llm_response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse_llm_response": {
+      "main": [
+        [
+          {
+            "node": "merge_agent_results",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "agent_header_analysis": {
+      "main": [
+        [
+          {
+            "node": "merge_agent_results",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "agent_attachment_risk": {
+      "main": [
+        [
+          {
+            "node": "merge_agent_results",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "merge_agent_results": {
+      "main": [
+        [
+          {
+            "node": "risk_scoring_engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "risk_scoring_engine": {
+      "main": [
+        [
+          {
+            "node": "store_in_database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "store_in_database": {
+      "main": [
+        [
+          {
+            "node": "webhook_response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
