@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>PhishGuard AI</title>
+
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+<div class="popup-container">
+
+    <div class="popup-header">
+
+        <div class="header-title">
+            <span class="app-icon">🛡</span>
+            <h1>PhishGuard AI</h1>
+        </div>
+
+    </div>
+
+    <div class="popup-content">
+
+        <button id="analyzeBtn" class="btn-primary">
+            Analyze Current Email
+        </button>
+
+        <div id="loading" class="placeholder hidden">
+            Analyzing email...
+        </div>
+
+        <div id="result" class="hidden">
+
+            <div id="riskCard" class="risk-card">
+
+                <h2 id="riskLevel">
+                    SAFE
+                </h2>
+
+                <h1 id="riskScore">
+                    0/100
+                </h1>
+
+                <p id="confidence">
+                    Confidence: 0%
+                </p>
+
+            </div>
+
+            <div class="section">
+                <h3>Summary</h3>
+                <p id="summary"></p>
+            </div>
+
+            <div class="section">
+                <h3>Findings</h3>
+                <ul id="findingsList"></ul>
+            </div>
+
+            <div class="section">
+                <h3>Recommendation</h3>
+                <p id="recommendation"></p>
+            </div>
+
+            <div class="action-buttons">
+
+                <button
+                    id="viewReportBtn"
+                    class="btn-primary">
+
+                    View Full Report
+
+                </button>
+
+                <button
+                    id="downloadReportBtn"
+                    class="btn-secondary">
+
+                    Download Report
+
+                </button>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+<script src="popup.js"></script>
+
+</body>
+</html>
